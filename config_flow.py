@@ -52,22 +52,26 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # The schema version of the entries that it creates
     # Home Assistant will call your migrate method if the version changes
+    # The schema version of the entries that it creates
+    # Home Assistant will call your migrate method if the version changes
     VERSION = 1
+    MINOR_VERSION = 1
 
     def __init__(self) -> None:
         """Initialize the config flow."""
-        _LOGGER.info("config flow.")
-        self.__api = EnergiinfoClient("https://api4.energiinfo.se", "13")
 
     async def authenticate(
         self, username: str, password: str
     ) -> tuple[bool, dict[str, Any]]:
         """Get the QR code."""
-        response = await self.hass.async_add_executor_job(
+        token = await self.hass.async_add_executor_job(
             self.__api.authenticate, username, password
         )
-        self.__token = response
-        return self.__api.getLoginStatus(), self.__api.getStatus()
+        self.__token = token
+        if self.__api.getStatus() == "ERR":
+            _LOGGER.info(self.__api.getErrorMessage)
+            raise InvalidAuth
+        return self.__api.getStatus()
 
     async def get_meter_ids(self) -> tuple[bool, dict[str, Any]]:
         """Get the meterid"""
@@ -83,7 +87,12 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                success, response = await self.authenticate(
+                self.__apiurl = user_input[CONF_URL]
+                self.__siteid = user_input[CONF_SITEID]
+                self.__api = EnergiinfoClient(
+                    user_input[CONF_URL], user_input[CONF_SITEID]
+                )
+                status = await self.authenticate(
                     user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
                 )
             except CannotConnect:
@@ -133,7 +142,13 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
             meter_alias = meter_choices[meter_id]
             return self.async_create_entry(
                 title=meter_alias,
-                data={"meter_id": meter_id, "alias": meter_alias},
+                data={
+                    "meter_id": meter_id,
+                    "alias": meter_alias,
+                    CONF_STORED_TOKEN: self.__token,
+                    CONF_URL: self.__apiurl,
+                    CONF_SITEID: self.__siteid,
+                },
             )
 
         # Display meter selection form
