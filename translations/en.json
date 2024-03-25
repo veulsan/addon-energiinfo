@@ -11,13 +11,10 @@
         "step": {
             "user": {
                 "data": {
+                    "url": "Api Url",
+                    "site_id": "Site ID",
                     "password": "Password",
-                    "url": "URL",
                     "username": "Username"
-                },
-                "data_description": {
-                    "site_id": "The site id for energiinfo",
-                    "url": "The API url for energiinfo"
                 }
             }
         }
