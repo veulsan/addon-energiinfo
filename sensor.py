@@ -6,9 +6,11 @@ from energiinfo.api import EnergiinfoClient
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfEnergy, UnitOfVolume
-from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity import Entity, generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from datetime import timedelta
+
+from homeassistant.components.sensor import ENTITY_ID_FORMAT
 
 from homeassistant_historical_sensor import (
     HistoricalSensor,
@@ -97,9 +99,8 @@ class EnergiinfoSensor(Entity):
         # This is the name for this *entity*, the "name" attribute from "device_info"
         # is used as the device name for device screens in the UI. This name is used on
         # entity screens, and used to build the Entity ID that's used is automations etc.
-        self._attr_name = f"{self._meter_id}_energy"
-
-        SCAN_INTERVAL = timedelta(seconds=30)
+        self._attr_name = f"{self._meter_alias}"
+        self.entity_id = f"sensor.{DOMAIN}_{self._meter_id}"
 
     # async def async_added_to_hass(self) -> None:
     #     """Run when this Entity has been added to HA."""
