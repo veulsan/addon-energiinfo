@@ -10,3 +10,4 @@ CONF_URL = "url"
 CONF_SITEID = "site_id"
 CONF_METERID = "meter_id"
 CONF_STORED_TOKEN: str = "stored_token"
+CONF_DAYS_BACK: int = 30
