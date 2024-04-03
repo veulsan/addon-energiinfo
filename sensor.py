@@ -236,7 +236,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # Calculate sum, mean, etc...
         #
         _LOGGER.info(f"Calculating statistics data")
-       accumulated = latest["sum"] if latest else 0
+        accumulated = latest["sum"] if latest else 0
 
         ret = []
         for hist in hist_states:
