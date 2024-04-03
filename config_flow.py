@@ -12,7 +12,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from energiinfo.api import EnergiinfoClient
 
-from .const import DOMAIN, CONF_URL, CONF_SITEID, CONF_METERID, CONF_STORED_TOKEN
+from .const import (
+    DOMAIN,
+    CONF_URL,
+    CONF_SITEID,
+    CONF_METERID,
+    CONF_STORED_TOKEN,
+    CONF_DAYS_BACK,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +87,15 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         return self.__api.getStatus(), meter_list
 
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            pass  # TODO: process user input
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({vol.Required("input_parameter"): str}),
+        )
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -89,6 +105,8 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
             try:
                 self.__apiurl = user_input[CONF_URL]
                 self.__siteid = user_input[CONF_SITEID]
+                self.__username = user_input[CONF_USERNAME]
+                self.__password = user_input[CONF_PASSWORD]
                 self.__api = EnergiinfoClient(
                     user_input[CONF_URL], user_input[CONF_SITEID]
                 )
@@ -121,6 +139,15 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
         # User did not confirm, return to the previous step
         return self.async_show_form(step_id="confirm", data_schema=DATA_SCHEMA)
 
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
+        if user_input is not None:
+            pass  # TODO: process user input
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({vol.Required("input_parameter"): str}),
+        )
+
     async def async_step_meter(self, user_input: Dict[str, Any] = None):
         """Handle meter selection."""
         # Extract meter information from input
@@ -148,6 +175,8 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_STORED_TOKEN: self.__token,
                     CONF_URL: self.__apiurl,
                     CONF_SITEID: self.__siteid,
+                    CONF_USERNAME: self.__username,
+                    CONF_PASSWORD: self.__password,
                 },
             )
 
