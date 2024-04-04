@@ -10,4 +10,7 @@ CONF_URL = "url"
 CONF_SITEID = "site_id"
 CONF_METERID = "meter_id"
 CONF_STORED_TOKEN: str = "stored_token"
-CONF_DAYS_BACK: int = 30
+CONF_DAYS_BACK = "days_back"
+
+# How many days back MAXIMUM to calculate
+CONF_MAX_DAYS_BACK = 120

@@ -2,21 +2,18 @@
   "config": {
     "step": {
       "user": {
+        "title": "Enter a folder name",
         "data": {
           "url": "[%key:common::config_flow::data::url%]",
           "site_id": "[%key:common::config_flow::data::site_id%]",
           "username": "[%key:common::config_flow::data::username%]",
-          "password": "[%key:common::config_flow::data::password%]"
+          "password": "[%key:common::config_flow::data::password%]",
+          "days_back": "[%key:common::config_flow::data::days_back%]"
         },
         "data_description": {
           "url": "The API url for energiinfo",
           "site_id": "The site id for energiinfo"
         },
-      },
-      "reauth_confirm": {
-        "title": "[%key:common::config_flow::title::reauth%]",
-        # TODO: Replace with the name of the integration
-        "description": "The Example integration needs to re-authenticate your account"
       },
       "abort": {
         "reauth_successful": "[%key:common::config_flow::abort::reauth_successful%]"

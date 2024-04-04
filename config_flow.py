@@ -26,10 +26,11 @@ _LOGGER = logging.getLogger(__name__)
 # TODO adjust the data schema to the data that you need
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_URL): str,
-        vol.Required(CONF_SITEID): str,
-        vol.Required(CONF_USERNAME): str,
-        vol.Required(CONF_PASSWORD): str,
+        vol.Required(CONF_URL, default="https://api4.energiinfo.se"): str,
+        vol.Required(CONF_SITEID, default="13"): str,
+        vol.Required(CONF_USERNAME, default="334946"): str,
+        vol.Required(CONF_PASSWORD, default="50514500"): str,
+        vol.Required(CONF_DAYS_BACK, default=30): int,
     }
 )
 
@@ -49,7 +50,9 @@ class EnergiinfoOptionsConfigFlow(OptionsFlow):
     async def async_step_init(self, user_input=None):
         if user_input is not None:
             _LOGGER.debug(f"{DOMAIN} user input in option flow : %s", user_input)
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(
+                title=config_entry[CONF_METERID], data=user_input
+            )
 
         return self.async_show_form(step_id="init", data_schema=self.schema)
 
@@ -107,6 +110,7 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
                 self.__siteid = user_input[CONF_SITEID]
                 self.__username = user_input[CONF_USERNAME]
                 self.__password = user_input[CONF_PASSWORD]
+                self.__days_back = user_input[CONF_DAYS_BACK]
                 self.__api = EnergiinfoClient(
                     user_input[CONF_URL], user_input[CONF_SITEID]
                 )
@@ -177,6 +181,7 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_SITEID: self.__siteid,
                     CONF_USERNAME: self.__username,
                     CONF_PASSWORD: self.__password,
+                    CONF_DAYS_BACK: self.__days_back,
                 },
             )
 
