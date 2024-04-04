@@ -5,12 +5,23 @@
     "@veulsan"
   ],
   "config_flow": true,
-  "dependencies": ["recorder"],
+  "dependencies": [
+    "recorder"
+  ],
   "documentation": "https://www.home-assistant.io/integrations/energiinfo",
-  "homekit": {},
+  "homekit": {
+
+  },
   "iot_class": "cloud_polling",
-  "requirements": ["energiinfo","homeassistant-historical-sensor==2.0.0rc4"],
-  "ssdp": [],
-  "zeroconf": [],
+  "requirements": [
+    "energiinfo",
+    "homeassistant-historical-sensor==2.0.0rc4"
+  ],
+  "ssdp": [
+
+  ],
+  "zeroconf": [
+
+  ],
   "version": "0.1.0"
 }
