@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import logging
 
-from .const import DOMAIN, CONF_URL, CONF_METERID, CONF_STORED_TOKEN
+from .const import DOMAIN, CONF_URL, CONF_METERID, CONF_STORED_TOKEN, CONF_DAYS_BACK
 from energiinfo.api import EnergiinfoClient
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
@@ -65,6 +65,7 @@ async def async_setup_entry(
             config_entry.data["alias"],
             config_entry.data[CONF_PASSWORD],
             config_entry.data[CONF_USERNAME],
+            config_entry.data[CONF_DAYS_BACK],
         )
     )
 
@@ -106,6 +107,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         meter_alias: str,
         password: str,
         username: str,
+        days_back: int,
     ):
         """Initialize the energy sensor."""
         self._meter_alias = meter_alias
@@ -114,6 +116,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._energiinfo_client = energiinfo_client
         self._username = username
         self._password = password
+        self._days_back = days_back
 
         # A unique_id for this entity with in this domain. This means for example if you
         # have a sensor on this cover, you must ensure the value returned is unique,
@@ -159,7 +162,8 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
     @property
     def name(self):
         """Return the name of the sensor."""
-        return f"{self._meter_alias} Energy Usage"
+        return self._attr_name
+        # return f"{self._meter_alias} Energy Usage"
 
     @property
     def unit_of_measurement(self):
@@ -177,54 +181,57 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         #
         # Important: You must provide datetime with tzinfo
         current_time = datetime.now()  # Get current date and time
-
         previous_day = current_time - timedelta(days=1)  # Subtract one day
-        period = previous_day.strftime("%Y%m%d")
-        _LOGGER.info(f"async_update_historical: period={period}")
+        days_back_day = current_time - timedelta(
+            days=self._days_back
+        )  # Subtract days_back days back
+        hist_states = []
+        while days_back_day <= previous_day:
+            period = days_back_day.strftime("%Y%m%d")
+            _LOGGER.info(f"async_update_historical: period={period}")
 
-        # Fetch input data
-        input_data = await self.hass.async_add_executor_job(
-            self._energiinfo_client.get_period_values,
-            self._meter_id,
-            period,
-            "ActiveEnergy",
-            "hour",
-        )
+            # Fetch input data
+            input_data = await self.hass.async_add_executor_job(
+                self._energiinfo_client.get_period_values,
+                self._meter_id,
+                period,
+                "ActiveEnergy",
+                "hour",
+            )
 
-        if input_data is None:
-            _LOGGER.info("No data found")
-            status = await self.hass.async_add_executor_job(
-                self._energiinfo_client.getStatus
-            )
-            errorMessage = await self.hass.async_add_executor_job(
-                self._energiinfo_client.getErrorMessage
-            )
-            if errorMessage == "Access denied":
-                _LOGGER.info("Access denied. Will try login again")
-                response = await self.hass.async_add_executor_job(
-                    self._energiinfo_client.authenticate,
-                    self._username,
-                    self._password,
-                    "temporary",
+            if input_data is None:
+                _LOGGER.info("No data found")
+                status = await self.hass.async_add_executor_job(
+                    self._energiinfo_client.getStatus
                 )
-            else:
-                _LOGGER.error(f"Status: {status} Error: {errorMessage}")
+                errorMessage = await self.hass.async_add_executor_job(
+                    self._energiinfo_client.getErrorMessage
+                )
+                if errorMessage == "Access denied":
+                    _LOGGER.info("Access denied. Will try login again")
+                    response = await self.hass.async_add_executor_job(
+                        self._energiinfo_client.authenticate,
+                        self._username,
+                        self._password,
+                        "temporary",
+                    )
+                else:
+                    _LOGGER.error(f"Status: {status} Error: {errorMessage}")
+                    # Handle case where input_daqta is None
+                self._attr_historical_states = []
+                return
 
-            # Handle case where input_data is None
-            self._attr_historical_states = []
-            return
+            # Convert input data into HistoricalState objects
+            for data in input_data:
+                hist = HistoricalState(
+                    state=float(data["value"]),
+                    dt=dtutil.as_local(datetime.strptime(data["time"], "%Y%m%d%H")),
+                )
+                hist_states.append(hist)
 
-        # Convert input data into HistoricalState objects
-        hist_states = [
-            HistoricalState(
-                state=float(data["value"]),  # Convert value to float
-                dt=dtutil.as_local(
-                    datetime.strptime(data["time"], "%Y%m%d%H")
-                ),  # Parse datetime
-            )
-            for data in input_data
-        ]
-        latest_time = max(input_data, key=lambda x: x["time"])["time"]
+            # Move to the next day
+            days_back_day += timedelta(days=1)
+
         # Fill the historical_states attribute with HistoricalState objects
         self._attr_historical_states = hist_states
 
@@ -252,6 +259,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                     sum=accumulated,
                 )
             )
+        _LOGGER.info(f"Finished calculating statistics data")
 
         return ret
 
