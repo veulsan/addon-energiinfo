@@ -1,6 +1,6 @@
 {
   "domain": "energiinfo",
-  "name": "energiinfo",
+  "name": "Energiinfo Energy Sensor",
   "codeowners": [
     "@veulsan"
   ],
