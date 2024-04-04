@@ -1,14 +1,25 @@
+import itertools
+import statistics
+from datetime import datetime, timedelta
+
 import logging
 
-
-from .const import DOMAIN, CONF_URL, CONF_METERID, CONF_STORED_TOKEN
+from .const import DOMAIN, CONF_URL, CONF_METERID, CONF_STORED_TOKEN, CONF_DAYS_BACK
 from energiinfo.api import EnergiinfoClient
+from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import ATTR_UNIT_OF_MEASUREMENT, UnitOfEnergy, UnitOfVolume
+from homeassistant.const import (
+    ATTR_UNIT_OF_MEASUREMENT,
+    UnitOfEnergy,
+    CONF_PASSWORD,
+    CONF_USERNAME,
+)
 from homeassistant.helpers.entity import Entity, generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from datetime import timedelta
+from homeassistant.helpers.typing import DiscoveryInfoType
+from homeassistant.util import dt as dtutil
 
 from homeassistant.components.sensor import ENTITY_ID_FORMAT
 
@@ -20,13 +31,13 @@ from homeassistant_historical_sensor import (
 
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(minutes=1)
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
+    discovery_info: DiscoveryInfoType | None = None,  # noqa DiscoveryInfoType | None
 ) -> None:
     """Set up the energy sensors."""
     _LOGGER.info(config_entry)
@@ -48,10 +59,13 @@ async def async_setup_entry(
     # Add the meter received
     entities = []
     entities.append(
-        EnergiinfoSensor(
+        EnergiinfoHistorySensor(
             energiinfo_client,
             config_entry.data["meter_id"],
             config_entry.data["alias"],
+            config_entry.data[CONF_PASSWORD],
+            config_entry.data[CONF_USERNAME],
+            config_entry.data[CONF_DAYS_BACK],
         )
     )
 
@@ -73,21 +87,36 @@ async def async_setup_entry(
     # async_add_entities(entities)
 
 
-class EnergiinfoSensor(Entity):
+class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
     """Representation of an energiinfo sensor."""
+
+    #
+    # Base clases:
+    # - SensorEntity: This is a sensor, obvious
+    # - HistoricalSensor: This sensor implements historical sensor methods
+    # - PollUpdateMixin: Historical sensors disable poll, this mixing
+    #                    reenables poll only for historical states and not for
+    #                    present state
+    #
+    UPDATE_INTERVAL: timedelta = timedelta(hours=2)
 
     def __init__(
         self,
         energiinfo_client: EnergiinfoClient,
         meter_id: str,
         meter_alias: str,
+        password: str,
+        username: str,
+        days_back: int,
     ):
         """Initialize the energy sensor."""
         self._meter_alias = meter_alias
         self._meter_id = meter_id
-        self._energy_usage = None
         self._unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
         self._energiinfo_client = energiinfo_client
+        self._username = username
+        self._password = password
+        self._days_back = days_back
 
         # A unique_id for this entity with in this domain. This means for example if you
         # have a sensor on this cover, you must ensure the value returned is unique,
@@ -99,8 +128,12 @@ class EnergiinfoSensor(Entity):
         # This is the name for this *entity*, the "name" attribute from "device_info"
         # is used as the device name for device screens in the UI. This name is used on
         # entity screens, and used to build the Entity ID that's used is automations etc.
+        self._attr_has_entity_name = True
         self._attr_name = f"{self._meter_alias}"
-        self.entity_id = f"sensor.{DOMAIN}_{self._meter_id}"
+        self._attr_entity_id = f"sensor.{DOMAIN}_{self._meter_id}"
+
+        self._attr_entity_registry_enabled_default = True
+        self._attr_state = None
 
     # async def async_added_to_hass(self) -> None:
     #     """Run when this Entity has been added to HA."""
@@ -129,40 +162,114 @@ class EnergiinfoSensor(Entity):
     @property
     def name(self):
         """Return the name of the sensor."""
-        return f"{self._meter_alias} Energy Usage"
-
-    @property
-    def state(self):
-        """Return the state of the sensor."""
-        return self._energy_usage
+        return self._attr_name
+        # return f"{self._meter_alias} Energy Usage"
 
     @property
     def unit_of_measurement(self):
         """Return the unit of measurement."""
         return self._unit_of_measurement
 
-    async def async_update(self):
-        """Update the sensor."""
-        # Fetch energy data using the EnergiinfoClient
-        # period_data = api.get_period_values('107223', '20240225', 'ActiveEnergy', 'hour')
-        period_values = await self.hass.async_add_executor_job(
-            self._energiinfo_client.get_period_values,
-            self._meter_id,
-            "2024030723",
-            "ActiveEnergy",
-            "hour",
-        )
+    @property
+    def statistic_id(self) -> str:
+        return self.entity_id
 
-        if period_values:
-            # Sum up the energy usage for the day
-            self._energy_usage = sum(float(value["value"]) for value in period_values)
-            _LOGGER.info("Updating energiinfo sensor " + str(self._energy_usage))
-        else:
-            error_message = await self.hass.async_add_executor_job(
-                self._energiinfo_client.getErrorMessage
-            )
-            _LOGGER.error(
-                "Failed to fetch energy data for meter %s: %s",
+    async def async_update_historical(self):
+        # Fill `HistoricalSensor._attr_historical_states` with HistoricalState's
+        # This functions is equivaled to the `Sensor.async_update` from
+        # HomeAssistant core
+        #
+        # Important: You must provide datetime with tzinfo
+        current_time = datetime.now()  # Get current date and time
+        previous_day = current_time - timedelta(days=1)  # Subtract one day
+        days_back_day = current_time - timedelta(
+            days=self._days_back
+        )  # Subtract days_back days back
+        hist_states = []
+        while days_back_day <= previous_day:
+            period = days_back_day.strftime("%Y%m%d")
+            _LOGGER.info(f"async_update_historical: period={period}")
+
+            # Fetch input data
+            input_data = await self.hass.async_add_executor_job(
+                self._energiinfo_client.get_period_values,
                 self._meter_id,
-                error_message,
+                period,
+                "ActiveEnergy",
+                "hour",
             )
+
+            if input_data is None:
+                _LOGGER.info("No data found")
+                status = await self.hass.async_add_executor_job(
+                    self._energiinfo_client.getStatus
+                )
+                errorMessage = await self.hass.async_add_executor_job(
+                    self._energiinfo_client.getErrorMessage
+                )
+                if errorMessage == "Access denied":
+                    _LOGGER.info("Access denied. Will try login again")
+                    response = await self.hass.async_add_executor_job(
+                        self._energiinfo_client.authenticate,
+                        self._username,
+                        self._password,
+                        "temporary",
+                    )
+                else:
+                    _LOGGER.error(f"Status: {status} Error: {errorMessage}")
+                    # Handle case where input_daqta is None
+                self._attr_historical_states = []
+                return
+
+            # Convert input data into HistoricalState objects
+            for data in input_data:
+                hist = HistoricalState(
+                    state=float(data["value"]),
+                    dt=dtutil.as_local(datetime.strptime(data["time"], "%Y%m%d%H")),
+                )
+                hist_states.append(hist)
+
+            # Move to the next day
+            days_back_day += timedelta(days=1)
+
+        # Fill the historical_states attribute with HistoricalState objects
+        self._attr_historical_states = hist_states
+
+    async def async_calculate_statistic_data(
+        self, hist_states: list[HistoricalState], *, latest: dict | None = None
+    ) -> list[StatisticData]:
+        #
+        # Group historical states by hour
+        # Calculate sum, mean, etc...
+        #
+        _LOGGER.info(f"Calculating statistics data")
+        accumulated = latest["sum"] if latest else 0
+
+        ret = []
+        for hist in hist_states:
+            mean = hist.state
+            partial_sum = hist.state
+            accumulated = accumulated + partial_sum
+
+            ret.append(
+                StatisticData(
+                    start=hist.dt,
+                    state=partial_sum,
+                    mean=mean,
+                    sum=accumulated,
+                )
+            )
+        _LOGGER.info(f"Finished calculating statistics data")
+
+        return ret
+
+    def get_statistic_metadata(self) -> StatisticMetaData:
+        #
+        # Add sum and mean to base statistics metadata
+        # Important: HistoricalSensor.get_statistic_metadata returns an
+        # internal source by default.
+        #
+        meta = super().get_statistic_metadata()
+        meta["has_sum"] = True
+        # meta["has_mean"] = True
+        return meta
