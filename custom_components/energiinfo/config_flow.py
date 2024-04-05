@@ -213,42 +213,39 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
         # hass.config_entries.async_update_entry(config_entry, data=new, minor_version=3, version=1)
 
         if user_input is not None:
-            days_back: int = user_input[CONF_DAYS_BACK]
-            old_days_back = self.config_entry.data[CONF_DAYS_BACK]
-            _LOGGER.debug("Changes days_back from {old_days_back} to {days_back}")
-            # Update data1 with data from data2
-            user_input = {**self.config_entry.data, **user_input}
-            self.hass.config_entries.async_update_entry(
-                self.config_entry, data=user_input
+            self.__api = EnergiinfoClient(
+                self.config_entry.data[CONF_URL], self.config_entry.data[CONF_SITEID]
             )
-            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
-            return self.async_abort(reason="reauth_successful")
-            # entity_reg = er.async_get(self.hass)
-            # if entity := entity_reg.async_get_entity_id(
-            #    "sensor", DOMAIN, self.config_entry.data["alias"]
-            # ):
-            #    entity_reg.async_update_entity(entity, new_unique_id=f"{lat}, {lon}")
-            # if await async_check_location(self.hass, lon, lat):
-            #     unique_id = f"{lat}-{lon}"
-            #     await self.async_set_unique_id(unique_id)
-            #     self._abort_if_unique_id_configured()
+            try:
+                status = await self.authenticate(
+                    user_input[CONF_USERNAME], user_input[CONF_PASSWORD]
+                )
+                if status == "OK":
+                    user_input[CONF_STORED_TOKEN] = self.__token
+                    days_back: int = user_input[CONF_DAYS_BACK]
+                    old_days_back = self.config_entry.data[CONF_DAYS_BACK]
+                    _LOGGER.debug(
+                        f"Changed days_back from {old_days_back} to {days_back}"
+                    )
+                    # Update config_entry with data from user_input
+                    user_input = {**self.config_entry.data, **user_input}
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry, data=user_input
+                    )
+                    await self.hass.config_entries.async_reload(
+                        self.config_entry.entry_id
+                    )
+                    return self.async_abort(reason="reauth_successful")
+                else:
+                    errors["base"] = "invalid_auth"
+            except CannotConnect:
+                errors["base"] = "cannot_connect"
+            except InvalidAuth:
+                errors["base"] = "invalid_auth"
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected exception")
+                errors["base"] = "unknown"
 
-            #     old_lat = self.config_entry.data[CONF_LOCATION][CONF_LATITUDE]
-            #     old_lon = self.config_entry.data[CONF_LOCATION][CONF_LONGITUDE]
-
-            #     device_reg = dr.async_get(self.hass)
-            #     if device := device_reg.async_get_device(
-            #         identifiers={(DOMAIN, f"{old_lat}, {old_lon}")}
-            #     ):
-            #         device_reg.async_update_device(
-            #             device.id, new_identifiers={(DOMAIN, f"{lat}, {lon}")}
-            #         )
-
-            # return self.async_update_reload_and_abort(
-            #     self.config_entry,
-            #     unique_id=unique_id,
-            #     data={**self.config_entry.data, **user_input},
-            #     reason="reconfigure_successful",
         return self.async_show_form(
             step_id="reconfigure_confirm",
             data_schema=STEP_RECONF_DATA_SCHEMA,
