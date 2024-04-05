@@ -70,21 +70,6 @@ async def async_setup_entry(
     )
 
     async_add_entities(entities)
-    # if energy_data is None:
-    #     _LOGGER.error("Failed to fetch energy data")
-    #     return
-
-    # # Create energy sensors based on fetched data
-    # entities = []
-
-    # for meter_id, energy_usage in energy_data.items():
-    #     entities.append(
-    #         EnergiinfoSensor(
-    #             config_entry.title, meter_id, energy_usage, api_url, api_token
-    #         )
-    #     )
-
-    # async_add_entities(entities)
 
 
 class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
@@ -117,6 +102,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._username = username
         self._password = password
         self._days_back = days_back
+        self._last_update = None
 
         # A unique_id for this entity with in this domain. This means for example if you
         # have a sensor on this cover, you must ensure the value returned is unique,
@@ -174,6 +160,16 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
     def statistic_id(self) -> str:
         return self.entity_id
 
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        """Return the state attributes."""
+        return {
+            "meter_alias": self._meter_alias,
+            "meter_id": self._meter_id,
+            "days_back": self._days_back,
+            "last_update": self._last_update,
+        }
+
     async def async_update_historical(self):
         # Fill `HistoricalSensor._attr_historical_states` with HistoricalState's
         # This functions is equivaled to the `Sensor.async_update` from
@@ -223,11 +219,21 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
 
             # Convert input data into HistoricalState objects
             for data in input_data:
-                hist = HistoricalState(
-                    state=float(data["value"]),
-                    dt=dtutil.as_local(datetime.strptime(data["time"], "%Y%m%d%H")),
-                )
-                hist_states.append(hist)
+                hist_time = dtutil.as_local(datetime.strptime(data["time"], "%Y%m%d%H"))
+                _LOGGER.info(f"last_update={self._last_update},hist_time={hist_time}")
+                # Check if the current data's time is higher than the highest_time
+                if self._last_update is None or hist_time > self._last_update:
+                    _LOGGER.info(
+                        f"adding hist last_update={self._last_update},hist_time={hist_time}"
+                    )
+                    hist = HistoricalState(
+                        state=float(data["value"]),
+                        dt=hist_time,
+                    )
+                    hist_states.append(hist)
+                    # Check if the current data's time is higher than the highest_time
+                    if self._last_update is None or hist.dt > self._last_update:
+                        self._last_update = hist.dt
 
             # Move to the next day
             days_back_day += timedelta(days=1)
