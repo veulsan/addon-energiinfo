@@ -12,6 +12,10 @@ from homeassistant.const import CONF_NAME, CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from energiinfo.api import EnergiinfoClient
+from homeassistant.helpers import (
+    device_registry as dr,
+    entity_registry as er,
+)
 
 from .const import (
     DOMAIN,
@@ -29,6 +33,14 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_URL): str,
         vol.Required(CONF_SITEID): str,
+        vol.Required(CONF_USERNAME): str,
+        vol.Required(CONF_PASSWORD): str,
+        vol.Required(CONF_DAYS_BACK): int,
+    }
+)
+
+STEP_RECONF_DATA_SCHEMA = vol.Schema(
+    {
         vol.Required(CONF_USERNAME): str,
         vol.Required(CONF_PASSWORD): str,
         vol.Required(CONF_DAYS_BACK): int,
@@ -70,6 +82,7 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize the config flow."""
+        _LOGGER.info("Initializing")
 
     async def authenticate(
         self, username: str, password: str
@@ -90,15 +103,6 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
             self.__api.get_metering_points
         )
         return self.__api.getStatus(), meter_list
-
-    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
-        if user_input is not None:
-            pass  # TODO: process user input
-
-        return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=vol.Schema({vol.Required("input_parameter"): str}),
-        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -143,15 +147,6 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
             return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
         # User did not confirm, return to the previous step
         return self.async_show_form(step_id="confirm", data_schema=DATA_SCHEMA)
-
-    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None):
-        if user_input is not None:
-            pass  # TODO: process user input
-
-        return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=vol.Schema({vol.Required("input_parameter"): str}),
-        )
 
     async def async_step_meter(self, user_input: Dict[str, Any] = None):
         """Handle meter selection."""
@@ -198,6 +193,67 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
             ),
         )
 
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle a reconfiguration flow initialized by the user."""
+        self.config_entry = self.hass.config_entries.async_get_entry(
+            self.context["entry_id"]
+        )
+        return await self.async_step_reconfigure_confirm()
+
+    async def async_step_reconfigure_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Handle a reconfiguration flow initialized by the user."""
+        errors: dict[str, str] = {}
+        assert self.config_entry
+        # mappingproxy({'meter_id': '107223', 'alias': 'Skolvägen 8,845 95 Rätan', 'stored_token': 'MQAzADoAMwA5ADQANwA2ADYAOgA0ADcAOAAwADMANgAzAEUAMwBDADMARgBDADUARQA2ADAAMAA3ADIAQQA2AEYARgA4AEYARgAzAEIANgBDAEQANABDAEUAMwA4ADgANgBDAA==', 'url': 'https://api4.energiinfo.se', 'site_id': '13', 'username': '334946', 'password': '50514500', 'days_back': 30})
+        # hass.config_entries.async_update_entry(config_entry, data=new, minor_version=3, version=1)
+
+        if user_input is not None:
+            days_back: int = user_input[CONF_DAYS_BACK]
+            old_days_back = self.config_entry.data[CONF_DAYS_BACK]
+            _LOGGER.info("Changes days_back from {old_days_back} to {days_back}")
+            # Update data1 with data from data2
+            user_input = {**self.config_entry.data, **user_input}
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data=user_input
+            )
+            await self.hass.config_entries.async_reload(self.config_entry.entry_id)
+            return self.async_abort(reason="reauth_successful")
+            # entity_reg = er.async_get(self.hass)
+            # if entity := entity_reg.async_get_entity_id(
+            #    "sensor", DOMAIN, self.config_entry.data["alias"]
+            # ):
+            #    entity_reg.async_update_entity(entity, new_unique_id=f"{lat}, {lon}")
+            # if await async_check_location(self.hass, lon, lat):
+            #     unique_id = f"{lat}-{lon}"
+            #     await self.async_set_unique_id(unique_id)
+            #     self._abort_if_unique_id_configured()
+
+            #     old_lat = self.config_entry.data[CONF_LOCATION][CONF_LATITUDE]
+            #     old_lon = self.config_entry.data[CONF_LOCATION][CONF_LONGITUDE]
+
+            #     device_reg = dr.async_get(self.hass)
+            #     if device := device_reg.async_get_device(
+            #         identifiers={(DOMAIN, f"{old_lat}, {old_lon}")}
+            #     ):
+            #         device_reg.async_update_device(
+            #             device.id, new_identifiers={(DOMAIN, f"{lat}, {lon}")}
+            #         )
+
+            # return self.async_update_reload_and_abort(
+            #     self.config_entry,
+            #     unique_id=unique_id,
+            #     data={**self.config_entry.data, **user_input},
+            #     reason="reconfigure_successful",
+        return self.async_show_form(
+            step_id="reconfigure_confirm",
+            data_schema=STEP_RECONF_DATA_SCHEMA,
+            errors=errors,
+        )
+
 
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
@@ -205,4 +261,3 @@ class CannotConnect(HomeAssistantError):
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
-
