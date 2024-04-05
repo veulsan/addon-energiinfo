@@ -24,6 +24,7 @@ from .const import (
     CONF_METERID,
     CONF_STORED_TOKEN,
     CONF_DAYS_BACK,
+    CONF_LAST_UPDATE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,18 +83,17 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         """Initialize the config flow."""
-        _LOGGER.info("Initializing")
 
     async def authenticate(
         self, username: str, password: str
     ) -> tuple[bool, dict[str, Any]]:
-        """Get the QR code."""
+        """Authenticate"""
         token = await self.hass.async_add_executor_job(
             self.__api.authenticate, username, password
         )
         self.__token = token
         if self.__api.getStatus() == "ERR":
-            _LOGGER.info(self.__api.getErrorMessage)
+            _LOGGER.error(self.__api.getErrorMessage)
             raise InvalidAuth
         return self.__api.getStatus()
 
@@ -178,6 +178,7 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_USERNAME: self.__username,
                     CONF_PASSWORD: self.__password,
                     CONF_DAYS_BACK: self.__days_back,
+                    CONF_LAST_UPDATE: None,
                 },
             )
 
@@ -214,7 +215,7 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             days_back: int = user_input[CONF_DAYS_BACK]
             old_days_back = self.config_entry.data[CONF_DAYS_BACK]
-            _LOGGER.info("Changes days_back from {old_days_back} to {days_back}")
+            _LOGGER.debug("Changes days_back from {old_days_back} to {days_back}")
             # Update data1 with data from data2
             user_input = {**self.config_entry.data, **user_input}
             self.hass.config_entries.async_update_entry(

@@ -4,7 +4,14 @@ from datetime import datetime, timedelta
 
 import logging
 
-from .const import DOMAIN, CONF_URL, CONF_METERID, CONF_STORED_TOKEN, CONF_DAYS_BACK
+from .const import (
+    DOMAIN,
+    CONF_URL,
+    CONF_METERID,
+    CONF_STORED_TOKEN,
+    CONF_DAYS_BACK,
+    CONF_LAST_UPDATE,
+)
 from energiinfo.api import EnergiinfoClient
 from homeassistant.components.recorder.models import StatisticData, StatisticMetaData
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
@@ -40,23 +47,15 @@ async def async_setup_entry(
     discovery_info: DiscoveryInfoType | None = None,  # noqa DiscoveryInfoType | None
 ) -> None:
     """Set up the energy sensors."""
-    _LOGGER.info(config_entry)
-    _LOGGER.info(config_entry.data)
+    _LOGGER.debug(f"Setting up Energiinfo sensor {config_entry.data}")
 
     energiinfo_client = hass.data[DOMAIN][config_entry.entry_id]
 
-    # Fetch metering_points
-    # metering_points = energiinfo_client.get_metering_points()
-    # if not metering_points:
-    #    _LOGGER.error("Failed to fetch metering points")
-    #    return
-
-    # metering_points = energiinfo_client.get_metering_points()
-    # if not metering_points:
-    #    _LOGGER.error("Failed to fetch metering points")
-    #    return
-
     # Add the meter received
+    last_update = config_entry.data.get(
+        CONF_LAST_UPDATE
+    )  # Get CONF_LAST_UPDATE, return None if not found
+
     entities = []
     entities.append(
         EnergiinfoHistorySensor(
@@ -66,6 +65,9 @@ async def async_setup_entry(
             config_entry.data[CONF_PASSWORD],
             config_entry.data[CONF_USERNAME],
             config_entry.data[CONF_DAYS_BACK],
+            last_update
+            if last_update is not None
+            else None,  # Assign None if last_update is None
         )
     )
 
@@ -93,6 +95,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         password: str,
         username: str,
         days_back: int,
+        last_update: str,
     ):
         """Initialize the energy sensor."""
         self._meter_alias = meter_alias
@@ -102,7 +105,9 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._username = username
         self._password = password
         self._days_back = days_back
-        self._last_update = None
+        self._last_update = datetime.fromisoformat(
+            last_update
+        )  # Convert string to datetime object
 
         # A unique_id for this entity with in this domain. This means for example if you
         # have a sensor on this cover, you must ensure the value returned is unique,
@@ -178,13 +183,20 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # Important: You must provide datetime with tzinfo
         current_time = datetime.now()  # Get current date and time
         previous_day = current_time - timedelta(days=1)  # Subtract one day
+
+        self.config_entry = self.hass.config_entries.async_get_entry(
+            self.registry_entry.config_entry_id
+        )
+
         days_back_day = current_time - timedelta(
             days=self._days_back
         )  # Subtract days_back days back
         hist_states = []
+        _LOGGER.debug(
+            f"Updating historical data from '{days_back_day}' to {previous_day}"
+        )
         while days_back_day <= previous_day:
             period = days_back_day.strftime("%Y%m%d")
-            _LOGGER.info(f"async_update_historical: period={period}")
 
             # Fetch input data
             input_data = await self.hass.async_add_executor_job(
@@ -196,7 +208,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             )
 
             if input_data is None:
-                _LOGGER.info("No data found")
+                _LOGGER.debug("No new data found")
                 status = await self.hass.async_add_executor_job(
                     self._energiinfo_client.getStatus
                 )
@@ -220,23 +232,35 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             # Convert input data into HistoricalState objects
             for data in input_data:
                 hist_time = dtutil.as_local(datetime.strptime(data["time"], "%Y%m%d%H"))
-                _LOGGER.info(f"last_update={self._last_update},hist_time={hist_time}")
                 # Check if the current data's time is higher than the highest_time
                 if self._last_update is None or hist_time > self._last_update:
-                    _LOGGER.info(
-                        f"adding hist last_update={self._last_update},hist_time={hist_time}"
-                    )
                     hist = HistoricalState(
                         state=float(data["value"]),
                         dt=hist_time,
                     )
                     hist_states.append(hist)
+                    _LOGGER.debug(f"Added HistoricalState({hist.state},{hist.dt})")
                     # Check if the current data's time is higher than the highest_time
                     if self._last_update is None or hist.dt > self._last_update:
                         self._last_update = hist.dt
 
             # Move to the next day
             days_back_day += timedelta(days=1)
+
+        if self.config_entry is not None:
+            last_update = datetime.fromisoformat(
+                self.config_entry.data.get(CONF_LAST_UPDATE)
+            )
+            if last_update is None or self._last_update > last_update:
+                user_input = {"last_update": self._last_update}
+                # Update with last_update
+                user_input = {**self.config_entry.data, **user_input}
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=user_input
+                )
+                _LOGGER.debug(f"Updated last_update to {self._last_update}")
+        else:
+            _LOGGER.warning("config_entry is None. Cannot update last_update.")
 
         # Fill the historical_states attribute with HistoricalState objects
         self._attr_historical_states = hist_states
@@ -248,7 +272,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # Group historical states by hour
         # Calculate sum, mean, etc...
         #
-        _LOGGER.info(f"Calculating statistics data")
+        _LOGGER.debug(f"Will calculating statistics data for historical states")
         accumulated = latest["sum"] if latest else 0
 
         ret = []
@@ -265,7 +289,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                     sum=accumulated,
                 )
             )
-        _LOGGER.info(f"Finished calculating statistics data")
+        _LOGGER.debug(f"Finished calculating statistics data")
 
         return ret
 
