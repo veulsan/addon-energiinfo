@@ -105,9 +105,12 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         self._username = username
         self._password = password
         self._days_back = days_back
-        self._last_update = datetime.fromisoformat(
-            last_update
-        )  # Convert string to datetime object
+        if last_update is not None:
+            self._last_update = datetime.fromisoformat(
+                last_update
+            )  # Convert string to datetime object
+        else:
+            self._last_update = None
 
         # A unique_id for this entity with in this domain. This means for example if you
         # have a sensor on this cover, you must ensure the value returned is unique,
@@ -256,9 +259,11 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             days_back_day += timedelta(days=1)
 
         if self.config_entry is not None:
-            last_update = datetime.fromisoformat(
-                self.config_entry.data.get(CONF_LAST_UPDATE)
-            )
+            last_update = self.config_entry.data.get(CONF_LAST_UPDATE)
+            if last_update is not None:
+                last_update = datetime.fromisoformat(
+                    self.config_entry.data.get(CONF_LAST_UPDATE)
+                )
             if last_update is None or self._last_update > last_update:
                 user_input = {"last_update": self._last_update}
                 # Update with last_update
