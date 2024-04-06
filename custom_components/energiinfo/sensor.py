@@ -217,12 +217,19 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                 )
                 if errorMessage == "Access denied":
                     _LOGGER.info("Access denied. Will try login again")
-                    response = await self.hass.async_add_executor_job(
+                    token = await self.hass.async_add_executor_job(
                         self._energiinfo_client.authenticate,
                         self._username,
                         self._password,
                         "temporary",
                     )
+                    user_input = {CONF_STORED_TOKEN: token}
+                    # Update token
+                    user_input = {**self.config_entry.data, **user_input}
+                    self.hass.config_entries.async_update_entry(
+                        self.config_entry, data=user_input
+                    )
+                    _LOGGER.debug(f"Updated {CONF_STORED_TOKEN} to {token}")
                 else:
                     _LOGGER.error(f"Status: {status} Error: {errorMessage}")
                     # Handle case where input_daqta is None
