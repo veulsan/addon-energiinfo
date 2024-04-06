@@ -223,6 +223,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                         self._password,
                         "temporary",
                     )
+                    self.__token = token
                     user_input = {CONF_STORED_TOKEN: token}
                     # Update token
                     user_input = {**self.config_entry.data, **user_input}
