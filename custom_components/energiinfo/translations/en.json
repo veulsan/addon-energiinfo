@@ -1,22 +1,30 @@
 {
     "config": {
-        "abort": {
-            "already_configured": "Device is already configured"
-        },
-        "error": {
-            "cannot_connect": "Failed to connect",
-            "invalid_auth": "Invalid authentication",
-            "unknown": "Unexpected error"
-        },
-        "step": {
-            "user": {
-                "data": {
-                    "url": "Api Url",
-                    "site_id": "Site ID",
-                    "password": "Password",
-                    "username": "Username"
-                }
-            }
+      "abort": {
+        "already_configured": "Device is already configured"
+      },
+      "error": {
+        "cannot_connect": "Failed to connect",
+        "invalid_auth": "Invalid authentication",
+        "unknown": "Unexpected error"
+      },
+      "step": {
+        "user": {
+          "title": "Add energiinfo historical energy sensor",
+          "description": "Energiinfo historical Energy Sensor",
+          "data": {
+            "url": "Api Url",
+            "site_id": "Site ID",
+            "password": "Password",
+            "username": "Username",
+            "days_back": "Number of days back"
+          },
+          "data_description": {
+            "url": "The enerigiinfo API url. Check your website to find out",
+            "site_id": "The site_id used by the API url",
+            "days_back": "Number of days back to start fetching historical data from"
+          }
         }
+      }
     }
-}
+  }
