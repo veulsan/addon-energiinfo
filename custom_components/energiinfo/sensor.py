@@ -256,7 +256,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                     self._energiinfo_client.authenticate,
                     self._username,
                     self._password,
-                    "temporary",
+                    "permanent",
                 )
                 self.__token = token
                 user_input = {CONF_STORED_TOKEN: token}
