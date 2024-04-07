@@ -25,6 +25,7 @@ from .const import (
     CONF_STORED_TOKEN,
     CONF_DAYS_BACK,
     CONF_LAST_UPDATE,
+    CONF_MAX_DAYS_BACK,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,6 +33,8 @@ _LOGGER = logging.getLogger(__name__)
 # TODO adjust the data schema to the data that you need
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
+        # BTEA https://api4.energiinfo.se siteid=13
+        # Kils energi http://api31.energiinfo.se/json.svc/users/login siteid=20
         vol.Required(CONF_URL): str,
         vol.Required(CONF_SITEID): str,
         vol.Required(CONF_USERNAME): str,
