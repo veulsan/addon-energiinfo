@@ -249,7 +249,9 @@ class EnergiinfoConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure_confirm",
-            data_schema=STEP_RECONF_DATA_SCHEMA,
+            data_schema=self.add_suggested_values_to_schema(
+                STEP_RECONF_DATA_SCHEMA, self.config_entry.data
+            ),
             errors=errors,
         )
 
