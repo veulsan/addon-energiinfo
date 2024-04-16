@@ -14,7 +14,7 @@
   },
   "iot_class": "cloud_polling",
   "requirements": [
-    "energiinfo",
+    "energiinfo==1.0.3",
     "homeassistant-historical-sensor==2.0.0rc4"
   ],
   "ssdp": [
