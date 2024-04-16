@@ -53,11 +53,30 @@ async def async_setup_entry(
     _LOGGER.debug(f"Setting up Energiinfo sensor {config_entry.data}")
 
     energiinfo_client = hass.data[DOMAIN][config_entry.entry_id]
+    # Check if token is still valid
+    token = config_entry.data[CONF_STORED_TOKEN]
+    if token is not None:
+        await hass.async_add_executor_job(energiinfo_client.authenticateToken, token)
+        status = energiinfo_client.getStatus()
+        if status == "OK":
+            _LOGGER.debug(f"Token verified OK")
+        else:
+            _LOGGER.debug(f"Access denied for Token. Will try and authenticate again")
+            token = await hass.async_add_executor_job(
+                energiinfo_client.authenticate,
+                config_entry.data[CONF_USERNAME],
+                config_entry.data[CONF_PASSWORD],
+            )
+            user_input = {CONF_STORED_TOKEN: token}
+            # Update token
+            user_input = {**config_entry.data, **user_input}
+            hass.config_entries.async_update_entry(config_entry, data=user_input)
 
     # Add the meter received
     last_update = config_entry.data.get(
         CONF_LAST_UPDATE
     )  # Get CONF_LAST_UPDATE, return None if not found
+    _LOGGER.debug(f"token={token},last_update={last_update}")
 
     entities = []
     entities.append(
@@ -184,6 +203,44 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             "last_update": self._last_update,
         }
 
+    async def verifyToken(self):
+        # First retrieve the stored token
+        token = await self.hass.async_add_executor_job(
+            self._energiinfo_client.get_access_token
+        )
+        # Then authenticate token
+        await self.hass.async_add_executor_job(
+            self._energiinfo_client.authenticateToken, token
+        )
+        status = await self.hass.async_add_executor_job(
+            self._energiinfo_client.getStatus
+        )
+        # Check if token was verified successfully othersize
+        if status == "OK":
+            _LOGGER.debug("Token successfully verified")
+        else:  # Otherwise handle errors
+            errorMessage = await self.hass.async_add_executor_job(
+                self._energiinfo_client.getErrorMessage
+            )
+            # If access was denied, re-authenticate
+            if errorMessage == "Access denied":
+                _LOGGER.info("Access denied. Will try login again")
+                self.__token = await self.hass.async_add_executor_job(
+                    self._energiinfo_client.authenticate,
+                    self._username,
+                    self._password,
+                    "permanent",
+                )
+                user_input = {CONF_STORED_TOKEN: token}
+                # Update token
+                user_input = {**self.config_entry.data, **user_input}
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, data=user_input
+                )
+                _LOGGER.debug(f"Updated {CONF_STORED_TOKEN} to {token}")
+            else:
+                _LOGGER.error(f"Status: {status} Error: {errorMessage}")
+
     async def async_update_historical(self):
         # Fill `HistoricalSensor._attr_historical_states` with HistoricalState's
         # This functions is equivaled to the `Sensor.async_update` from
@@ -194,6 +251,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # Create a datetime object with timezone information
         current_time = self._timzeone.localize(datetime.now())
         previous_day = current_time - timedelta(days=1)  # Subtract one day
+        self.verifyToken()
 
         # Initialize days_back to the maximum number of days or 1, depending on last_update
         if self._last_update is None:
@@ -204,7 +262,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         else:
             days_back_day = min(self._last_update, previous_day)
             if previous_day < self._last_update:
-                _LOGGER.info("Update interval changed to 2 Hours")
+                _LOGGER.debug("Update interval changed to 2 Hours")
                 self.UPDATE_INTERVAL = timedelta(hours=2)
 
         # Calculate the end date for the current iteration
@@ -250,25 +308,6 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                 self._energiinfo_client.getErrorMessage
             )
 
-            if errorMessage == "Access denied":
-                _LOGGER.info("Access denied. Will try login again")
-                token = await self.hass.async_add_executor_job(
-                    self._energiinfo_client.authenticate,
-                    self._username,
-                    self._password,
-                    "permanent",
-                )
-                self.__token = token
-                user_input = {CONF_STORED_TOKEN: token}
-                # Update token
-                user_input = {**self.config_entry.data, **user_input}
-                self.hass.config_entries.async_update_entry(
-                    self.config_entry, data=user_input
-                )
-                _LOGGER.debug(f"Updated {CONF_STORED_TOKEN} to {token}")
-            else:
-                _LOGGER.error(f"Status: {status} Error: {errorMessage}")
-                # Handle case where input_daqta is None
             self._attr_historical_states = []
         elif len(input_data) == 0:
             status = await self.hass.async_add_executor_job(
@@ -277,6 +316,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
             if status == "OK":
                 last_update_changed = True
                 self._last_update = end_date
+                self._attr_historical_states = []
         else:
             # Convert input data into HistoricalState objects
             for data in input_data:
@@ -298,6 +338,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                         last_update_changed = True
 
         if last_update_changed:
+            self._last_update = self._last_update - timedelta(hours=1)
             user_input = {"last_update": self._last_update}
             # Update with last_update
             user_input = {**self.config_entry.data, **user_input}
@@ -316,15 +357,21 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
         # Group historical states by hour
         # Calculate sum, mean, etc...
         #
-        _LOGGER.info(f"Will calculate statistics data for historical states")
         accumulated = latest["sum"] if latest else 0
+        _LOGGER.info(
+            f"Will calculate statistics data for historical states: accumulated{accumulated}"
+        )
 
         ret = []
         for hist in hist_states:
             mean = hist.state
             partial_sum = hist.state
             accumulated = accumulated + partial_sum
-
+            _LOGGER.debug(
+                f"StatisticData: datetime={hist.dt},state=hist.state,mean=mean,sum=accumulated"
+            )
+            if hist.dt.minute == 0 and hist.dt.second == 0:
+                hist.dt = hist.dt - timedelta(hours=1)
             ret.append(
                 StatisticData(
                     start=hist.dt,
@@ -333,7 +380,7 @@ class EnergiinfoHistorySensor(PollUpdateMixin, HistoricalSensor, SensorEntity):
                     sum=accumulated,
                 )
             )
-        _LOGGER.debug(f"Finished calculating statistics data")
+        _LOGGER.info(f"Finished calculating statistics data")
 
         return ret
 
